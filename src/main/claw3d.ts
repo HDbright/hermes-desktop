@@ -340,85 +340,176 @@ export async function getClaw3dStatus(): Promise<Claw3dStatus> {
   };
 }
 
-let _cachedNpmCommand: ResolvedCommand | null = null;
+let _cachedPnpmCommand: ResolvedCommand | null = null;
+let _cachedNodeCommand: ResolvedCommand | null = null;
 
-  function findNpm(envPath = getEnhancedPath()): ResolvedCommand {
-    if (_cachedNpmCommand) return _cachedNpmCommand;
+function findPnpm(envPath = getEnhancedPath()): ResolvedCommand {
+  if (_cachedPnpmCommand) return _cachedPnpmCommand;
 
-    const home = homedir();
+  const home = homedir();
 
-    if (process.platform === "win32") {
-      const resolved = resolveCommandOnPath("npm", envPath);
-      if (resolved) {
-        _cachedNpmCommand = resolved;
-        return resolved;
-      }
+  if (process.platform === "win32") {
+    const resolved = resolveCommandOnPath("pnpm", envPath);
+    if (resolved) {
+      _cachedPnpmCommand = {
+        command: resolved.command,
+        windowsScript: false,
+      };
+      return _cachedPnpmCommand;
     }
-
-    // Try common locations first (no process spawn).
-    // Includes nvm, nvm-windows, volta, fnm, and system paths.
-    const candidates = [
-      ...(process.platform === "win32"
-        ? [
-            process.env.NVM_SYMLINK
-              ? join(process.env.NVM_SYMLINK, "npm.cmd")
-              : undefined,
-            join(home, "AppData", "Roaming", "npm", "npm.cmd"),
-            process.env.ProgramFiles
-              ? join(process.env.ProgramFiles, "nodejs", "npm.cmd")
-              : undefined,
-            process.env["ProgramFiles(x86)"]
-              ? join(process.env["ProgramFiles(x86)"], "nodejs", "npm.cmd")
-              : undefined,
-          ]
-        : []),
-      join(home, ".volta", "bin", "npm"),
-      join(home, ".asdf", "shims", "npm"),
-      join(home, ".local", "share", "fnm", "aliases", "default", "bin", "npm"),
-      join(home, ".fnm", "aliases", "default", "bin", "npm"),
-      "/usr/local/bin/npm",
-      "/opt/homebrew/bin/npm",
-    ].filter((candidate): candidate is string => Boolean(candidate));
-
-    const nvmDir = process.env.NVM_DIR || join(home, ".nvm");
-    const nvmVersions = join(nvmDir, "versions", "node");
-    if (existsSync(nvmVersions)) {
-      try {
-        const versions = readdirSync(nvmVersions)
-          .filter((d: string) => d.startsWith("v"))
-          .sort()
-          .reverse();
-        for (const v of versions) {
-          candidates.unshift(join(nvmVersions, v, "bin", "npm"));
-        }
-      } catch {
-        /* non-fatal */
-      }
-    }
-
-    for (const c of candidates) {
-      if (existsSync(c)) {
-        _cachedNpmCommand = {
-          command: c,
-          windowsScript:
-            process.platform === "win32" && isWindowsCommandScript(c),
-        };
-        return _cachedNpmCommand;
-      }
-    }
-
-    // Fallback path lookup only runs once because the result is cached.
-    if (process.platform !== "win32") {
-      const resolved = resolveCommandOnPath("npm", envPath);
-      if (resolved) {
-        _cachedNpmCommand = resolved;
-        return resolved;
-      }
-    }
-
-    _cachedNpmCommand = resolveCommand("npm", envPath);
-    return _cachedNpmCommand;
   }
+
+  // Try common locations first (no process spawn).
+  // Includes pnpm install locations.
+  const candidates = [
+    ...(process.platform === "win32"
+      ? [
+          process.env.NVM_SYMLINK
+            ? join(process.env.NVM_SYMLINK, "pnpm.cmd")
+            : undefined,
+          join(home, "AppData", "Local", "pnpm", "pnpm.cmd"),
+          join(home, "AppData", "Roaming", "pnpm", "pnpm.cmd"),
+          process.env.ProgramFiles
+            ? join(process.env.ProgramFiles, "nodejs", "pnpm.cmd")
+            : undefined,
+          process.env["ProgramFiles(x86)"]
+            ? join(process.env["ProgramFiles(x86)"], "nodejs", "pnpm.cmd")
+            : undefined,
+        ]
+      : []),
+    join(home, ".volta", "bin", "pnpm"),
+    join(home, ".asdf", "shims", "pnpm"),
+    join(home, ".local", "share", "fnm", "aliases", "default", "bin", "pnpm"),
+    join(home, ".fnm", "aliases", "default", "bin", "pnpm"),
+    "/usr/local/bin/pnpm",
+    "/opt/homebrew/bin/pnpm",
+    join(home, ".pnpm-global", "bin", "pnpm"),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  const nvmDir = process.env.NVM_DIR || join(home, ".nvm");
+  const nvmVersions = join(nvmDir, "versions", "node");
+  if (existsSync(nvmVersions)) {
+    try {
+      const versions = readdirSync(nvmVersions)
+        .filter((d: string) => d.startsWith("v"))
+        .sort()
+        .reverse();
+      for (const v of versions) {
+        candidates.unshift(join(nvmVersions, v, "bin", "pnpm"));
+      }
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  for (const c of candidates) {
+    if (existsSync(c)) {
+      _cachedPnpmCommand = {
+        command: c,
+        windowsScript: false,
+      };
+      return _cachedPnpmCommand;
+    }
+  }
+
+  // Fallback path lookup only runs once because the result is cached.
+  if (process.platform !== "win32") {
+    const resolved = resolveCommandOnPath("pnpm", envPath);
+    if (resolved) {
+      _cachedPnpmCommand = resolved;
+      return resolved;
+    }
+  }
+
+  _cachedPnpmCommand = resolveCommand("pnpm", envPath);
+  return _cachedPnpmCommand;
+}
+
+function findNodeFromPnpm(pnpmCmd: ResolvedCommand): ResolvedCommand | null {
+  const pnpmPath = pnpmCmd.command;
+  const nodeExe = join(dirname(pnpmPath), "node.exe");
+  if (existsSync(nodeExe)) {
+    return { command: nodeExe, windowsScript: false };
+  }
+
+  const nodeCmd = join(dirname(pnpmPath), "node");
+  if (existsSync(nodeCmd)) {
+    return { command: nodeCmd, windowsScript: false };
+  }
+
+  return null;
+}
+
+function findNode(envPath = getEnhancedPath()): ResolvedCommand {
+  if (_cachedNodeCommand) return _cachedNodeCommand;
+
+  const home = homedir();
+
+  if (process.platform === "win32") {
+    const resolved = resolveCommandOnPath("node", envPath);
+    if (resolved) {
+      _cachedNodeCommand = {
+        command: resolved.command,
+        windowsScript: false,
+      };
+      return _cachedNodeCommand;
+    }
+  }
+
+  const candidates = [
+    ...(process.platform === "win32"
+      ? [
+          process.env.NVM_SYMLINK
+            ? join(process.env.NVM_SYMLINK, "node.exe")
+            : undefined,
+          join(home, "AppData", "Local", "pnpm", "node.exe"),
+          join(home, "AppData", "Roaming", "npm", "node.exe"),
+          process.env.ProgramFiles
+            ? join(process.env.ProgramFiles, "nodejs", "node.exe")
+            : undefined,
+          process.env["ProgramFiles(x86)"]
+            ? join(process.env["ProgramFiles(x86)"], "nodejs", "node.exe")
+            : undefined,
+        ]
+      : []),
+    join(home, ".volta", "bin", "node"),
+    join(home, ".asdf", "shims", "node"),
+    join(home, ".local", "share", "fnm", "aliases", "default", "bin", "node"),
+    join(home, ".fnm", "aliases", "default", "bin", "node"),
+    "/usr/local/bin/node",
+    "/opt/homebrew/bin/node",
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  const nvmDir = process.env.NVM_DIR || join(home, ".nvm");
+  const nvmVersions = join(nvmDir, "versions", "node");
+  if (existsSync(nvmVersions)) {
+    try {
+      const versions = readdirSync(nvmVersions)
+        .filter((d: string) => d.startsWith("v"))
+        .sort()
+        .reverse();
+      for (const v of versions) {
+        candidates.unshift(join(nvmVersions, v, "bin", "node"));
+      }
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  for (const c of candidates) {
+    if (existsSync(c)) {
+      _cachedNodeCommand = {
+        command: c,
+        windowsScript: false,
+      };
+      return _cachedNodeCommand;
+    }
+  }
+
+  const fallback = resolveCommand("node", envPath);
+  _cachedNodeCommand = fallback;
+  return fallback;
+}
 
 export async function setupClaw3d(
   onProgress: (progress: Claw3dSetupProgress) => void,
@@ -513,8 +604,8 @@ export async function setupClaw3d(
     });
   }
 
-  emit(2, "Installing dependencies...", "Running npm install...\n");
-  const npm = createCommandInvocation(findNpm(env.PATH), ["install"]);
+  emit(2, "Installing dependencies...", "Running pnpm install...\n");
+  const npm = createCommandInvocation(findPnpm(env.PATH), ["install"]);
 
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(npm.command, npm.args, {
@@ -541,11 +632,11 @@ export async function setupClaw3d(
         );
         resolve();
       } else {
-        reject(new Error(`npm install failed (exit code ${code})`));
+        reject(new Error(`pnpm install failed (exit code ${code})`));
       }
     });
     proc.on("error", (err) =>
-      reject(new Error(`Failed to run npm: ${err.message}`)),
+      reject(new Error(`Failed to run pnpm: ${err.message}`)),
     );
   });
 
@@ -587,15 +678,24 @@ export async function startDevServer(): Promise<boolean> {
     TERM: "dumb",
     PORT: String(port),
   };
-  const npm = createCommandInvocation(findNpm(env.PATH), ["run", "dev"]);
-  const proc = spawn(npm.command, npm.args, {
-    cwd: HERMES_OFFICE_DIR,
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-    detached: true,
-    windowsHide: true,
-    windowsVerbatimArguments: npm.windowsVerbatimArguments,
-  });
+
+  const pnpmCmd = findPnpm(env.PATH);
+  let nodeCmd = findNodeFromPnpm(pnpmCmd);
+  if (!nodeCmd) {
+    nodeCmd = findNode(env.PATH);
+  }
+
+  const proc = spawn(
+    nodeCmd.command,
+    [join(HERMES_OFFICE_DIR, "server", "index.js"), "--dev"],
+    {
+      cwd: HERMES_OFFICE_DIR,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+      windowsHide: process.platform === "win32",
+    },
+  );
 
   devServerProcess = proc;
   if (proc.pid) writePid(DEV_PID_FILE, proc.pid);
@@ -662,18 +762,24 @@ export async function startAdapter(): Promise<boolean> {
     HOME: homedir(),
     TERM: "dumb",
   };
-  const npm = createCommandInvocation(findNpm(env.PATH), [
-    "run",
-    "hermes-adapter",
-  ]);
-  const proc = spawn(npm.command, npm.args, {
-    cwd: HERMES_OFFICE_DIR,
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-    detached: true,
-    windowsHide: true,
-    windowsVerbatimArguments: npm.windowsVerbatimArguments,
-  });
+
+  const pnpmCmd = findPnpm(env.PATH);
+  let nodeCmd = findNodeFromPnpm(pnpmCmd);
+  if (!nodeCmd) {
+    nodeCmd = findNode(env.PATH);
+  }
+
+  const proc = spawn(
+    nodeCmd.command,
+    [join(HERMES_OFFICE_DIR, "server", "hermes-gateway-adapter.js")],
+    {
+      cwd: HERMES_OFFICE_DIR,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+      windowsHide: process.platform === "win32",
+    },
+  );
 
   adapterProcess = proc;
   if (proc.pid) writePid(ADAPTER_PID_FILE, proc.pid);

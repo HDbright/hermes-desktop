@@ -199,6 +199,7 @@ export function removeSessionFromCache(sessionId: string): void {
 
 export function deleteSessionComplete(sessionId: string): boolean {
   let deleted = false;
+  let wasInCache = false;
 
   try {
     if (existsSync(WEBUI_SESSIONS_DIR)) {
@@ -240,7 +241,11 @@ export function deleteSessionComplete(sessionId: string): boolean {
     // database deletion is best-effort
   }
 
+  // Check if session was in cache before removing
+  const cache = readCache();
+  wasInCache = cache.sessions.some((s) => s.id === sessionId);
   removeSessionFromCache(sessionId);
 
-  return deleted;
+  // Return true if we deleted from DB/filesystem OR the session was in cache
+  return deleted || wasInCache;
 }
