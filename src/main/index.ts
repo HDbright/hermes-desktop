@@ -84,6 +84,7 @@ import {
   syncSessionCache,
   listCachedSessions,
   updateSessionTitle,
+  deleteSessionComplete,
 } from "./session-cache";
 import { listModels, addModel, removeModel, updateModel } from "./models";
 import {
@@ -332,12 +333,13 @@ function setupIPC(): void {
       }
       setEnvValue(key, value, profile);
       // Restart gateway so it picks up the new API key
+      const gatewayRunning = await isGatewayRunning();
       if (
-        (isGatewayRunning() && key.endsWith("_API_KEY")) ||
+        (gatewayRunning && key.endsWith("_API_KEY")) ||
         key.endsWith("_TOKEN") ||
         key === "HF_TOKEN"
       ) {
-        restartGateway(profile);
+        await restartGateway(profile);
       }
       return true;
     },
@@ -402,13 +404,14 @@ function setupIPC(): void {
       setModelConfig(provider, model, baseUrl, profile);
 
       // Restart gateway when provider, model, or endpoint changes so it picks up new config
+      const gatewayRunning = await isGatewayRunning();
       if (
-        isGatewayRunning() &&
+        gatewayRunning &&
         (prev.provider !== provider ||
           prev.model !== model ||
           prev.baseUrl !== baseUrl)
       ) {
-        restartGateway(profile);
+        await restartGateway(profile);
       }
 
       return true;
@@ -496,8 +499,8 @@ function setupIPC(): void {
       resumeSessionId?: string,
       history?: Array<{ role: string; content: string }>,
     ) => {
-      if (!isRemoteMode() && !isGatewayRunning()) {
-        startGateway(profile);
+      if (!isRemoteMode() && !(await isGatewayRunning())) {
+        await startGateway(profile);
       }
 
       await ensureSshTunnelIfNeeded();
@@ -595,7 +598,7 @@ function setupIPC(): void {
   ipcMain.handle("start-gateway", async () => {
     const conn = getConnectionConfig();
     if (conn.mode === "ssh" && conn.ssh) { await sshStartGateway(conn.ssh); return true; }
-    return startGateway();
+    return await startGateway();
   });
   ipcMain.handle("stop-gateway", async () => {
     const conn = getConnectionConfig();
@@ -603,7 +606,7 @@ function setupIPC(): void {
     stopGateway(true);
     return true;
   });
-  ipcMain.handle("gateway-status", () => {
+  ipcMain.handle("gateway-status", async () => {
     const conn = getConnectionConfig();
     if (conn.mode === "ssh" && conn.ssh) return sshGatewayStatus(conn.ssh);
     return isGatewayRunning();
@@ -625,8 +628,9 @@ function setupIPC(): void {
       }
       setPlatformEnabled(platform, enabled, profile);
       // Restart gateway so it picks up the new platform config
-      if (isGatewayRunning()) {
-        restartGateway(profile);
+      const gatewayRunning = await isGatewayRunning();
+      if (gatewayRunning) {
+        await restartGateway(profile);
       }
       return true;
     },
@@ -787,6 +791,12 @@ function setupIPC(): void {
       updateSessionTitle(sessionId, title),
   );
 
+  ipcMain.handle("delete-session", (_event, sessionId: string) => {
+    const conn = getConnectionConfig();
+    if (conn.mode === "ssh" && conn.ssh) return false;
+    return deleteSessionComplete(sessionId);
+  });
+
   // Session search
   ipcMain.handle("search-sessions", (_event, query: string, limit?: number) => {
     const conn = getConnectionConfig();
@@ -851,19 +861,19 @@ function setupIPC(): void {
     return true;
   });
 
-  ipcMain.handle("claw3d-start-all", () => startClaw3dAll());
+  ipcMain.handle("claw3d-start-all", async () => startClaw3dAll());
   ipcMain.handle("claw3d-stop-all", () => {
     stopClaw3d();
     return true;
   });
   ipcMain.handle("claw3d-get-logs", () => getClaw3dLogs());
 
-  ipcMain.handle("claw3d-start-dev", () => startDevServer());
+  ipcMain.handle("claw3d-start-dev", async () => startDevServer());
   ipcMain.handle("claw3d-stop-dev", () => {
     stopDevServer();
     return true;
   });
-  ipcMain.handle("claw3d-start-adapter", () => startAdapter());
+  ipcMain.handle("claw3d-start-adapter", async () => startAdapter());
   ipcMain.handle("claw3d-stop-adapter", () => {
     stopAdapter();
     return true;

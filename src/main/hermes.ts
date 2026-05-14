@@ -4,6 +4,7 @@ import { join } from "path";
 import { homedir } from "os";
 import http from "http";
 import https from "https";
+import { createConnection } from "net";
 import {
   HERMES_HOME,
   HERMES_REPO,
@@ -534,6 +535,7 @@ function sendMessageViaCli(
     cwd: HERMES_REPO,
     env,
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
   });
 
   let hasOutput = false;
@@ -688,9 +690,9 @@ export function stopHealthPolling(): void {
 let gatewayProcess: ChildProcess | null = null;
 let gatewayStartedByApp = false;
 
-export function startGateway(profile?: string): boolean {
+export async function startGateway(profile?: string): Promise<boolean> {
   ensureInitialized();
-  if (isGatewayRunning()) return false;
+  if (await isGatewayRunning()) return false;
 
   // Build gateway env with profile API keys
   const gatewayEnv: Record<string, string> = {
@@ -714,6 +716,7 @@ export function startGateway(profile?: string): boolean {
     env: gatewayEnv,
     stdio: "ignore",
     detached: true,
+    windowsHide: true,
   });
 
   gatewayProcess.unref();
@@ -734,6 +737,25 @@ export function startGateway(profile?: string): boolean {
   }, 3000);
 
   return true;
+}
+
+function checkPort(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ port, host: "127.0.0.1" });
+    socket.setTimeout(300); // 300ms is plenty for localhost
+    socket.on("connect", () => {
+      socket.destroy();
+      resolve(true); // port is in use
+    });
+    socket.on("error", () => {
+      socket.destroy();
+      resolve(false); // port is free
+    });
+    socket.on("timeout", () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
 }
 
 function readPidFile(): number | null {
@@ -781,16 +803,21 @@ export function stopGateway(force = false): void {
   apiServerAvailable = false;
 }
 
-export function isGatewayRunning(): boolean {
+export async function isGatewayRunning(): Promise<boolean> {
   if (gatewayProcess && !gatewayProcess.killed) return true;
   const pid = readPidFile();
-  if (!pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
+  let pidValid = false;
+  if (pid) {
+    try {
+      process.kill(pid, 0);
+      pidValid = true;
+    } catch {
+      pidValid = false;
+    }
   }
+  // 如果PID无效，但端口8642是否被占用？
+  const portInUse = await checkPort(8642);
+  return pidValid || portInUse;
 }
 
 export function isApiReady(): boolean {
@@ -823,8 +850,8 @@ export function testRemoteConnection(
   });
 }
 
-export function restartGateway(profile?: string): void {
-  if (!gatewayStartedByApp && !isGatewayRunning()) return;
+export async function restartGateway(profile?: string): Promise<void> {
+  if (!gatewayStartedByApp && !(await isGatewayRunning())) return;
   stopGateway(true);
   setTimeout(() => {
     startGateway(profile);

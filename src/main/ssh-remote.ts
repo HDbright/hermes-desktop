@@ -39,6 +39,7 @@ export function sshExec(config: SshConfig, command: string, stdin?: string, time
   return new Promise((resolve, reject) => {
     const child = spawn("ssh", [...buildExecArgs(config), command], {
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     });
     let stdout = "";
     let stderr = "";

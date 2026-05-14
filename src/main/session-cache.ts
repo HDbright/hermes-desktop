@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, unlinkSync } from "fs";
 import { join } from "path";
 import { HERMES_HOME } from "./installer";
 import { safeWriteFile } from "./utils";
@@ -9,6 +9,8 @@ import { getAppLocale } from "./locale";
 const CACHE_DIR = join(HERMES_HOME, "desktop");
 const CACHE_FILE = join(CACHE_DIR, "sessions.json");
 const DB_PATH = join(HERMES_HOME, "state.db");
+const WEBUI_SESSIONS_DIR = join(HERMES_HOME, "webui", "sessions");
+const INDEX_FILE = join(WEBUI_SESSIONS_DIR, "_index.json");
 
 export interface CachedSession {
   id: string;
@@ -184,4 +186,61 @@ export function updateSessionTitle(
     cache.sessions[idx].title = title;
     writeCache(cache);
   }
+}
+
+export function removeSessionFromCache(sessionId: string): void {
+  const cache = readCache();
+  const filtered = cache.sessions.filter((s) => s.id !== sessionId);
+  if (filtered.length !== cache.sessions.length) {
+    cache.sessions = filtered;
+    writeCache(cache);
+  }
+}
+
+export function deleteSessionComplete(sessionId: string): boolean {
+  let deleted = false;
+
+  try {
+    if (existsSync(WEBUI_SESSIONS_DIR)) {
+      const sessionFile = join(WEBUI_SESSIONS_DIR, `${sessionId}.json`);
+      if (existsSync(sessionFile)) {
+        unlinkSync(sessionFile);
+        deleted = true;
+      }
+      if (existsSync(INDEX_FILE)) {
+        const indexContent = readFileSync(INDEX_FILE, "utf-8");
+        const index = JSON.parse(indexContent) as Array<{ session_id: string }>;
+        const filtered = index.filter((item) => item.session_id !== sessionId);
+        if (filtered.length !== index.length) {
+          safeWriteFile(INDEX_FILE, JSON.stringify(filtered, null, 2));
+          deleted = true;
+        }
+      }
+    }
+  } catch {
+    // filesystem deletion is best-effort
+  }
+
+  try {
+    if (existsSync(DB_PATH)) {
+      const db = new Database(DB_PATH);
+      try {
+        db.pragma("foreign_keys = ON");
+        const tx = db.transaction(() => {
+          db.prepare("DELETE FROM messages WHERE session_id = ?").run(sessionId);
+          db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+        });
+        tx();
+        deleted = true;
+      } finally {
+        db.close();
+      }
+    }
+  } catch {
+    // database deletion is best-effort
+  }
+
+  removeSessionFromCache(sessionId);
+
+  return deleted;
 }

@@ -11,7 +11,10 @@ export const HERMES_HOME =
   process.env.HERMES_HOME?.trim() || join(homedir(), ".hermes");
 export const HERMES_REPO = join(HERMES_HOME, "hermes-agent");
 export const HERMES_VENV = join(HERMES_REPO, "venv");
-export const HERMES_PYTHON = join(HERMES_VENV, "bin", "python");
+export const HERMES_PYTHON =
+  process.platform === "win32"
+    ? join(HERMES_VENV, "Scripts", "python.exe")
+    : join(HERMES_VENV, "bin", "python");
 export const HERMES_SCRIPT = join(HERMES_REPO, "hermes");
 export const HERMES_ENV_FILE = join(HERMES_HOME, ".env");
 export const HERMES_CONFIG_FILE = join(HERMES_HOME, "config.yaml");
@@ -37,7 +40,7 @@ export function getEnhancedPath(): string {
   const extra = [
     join(home, ".local", "bin"),
     join(home, ".cargo", "bin"),
-    join(HERMES_VENV, "bin"),
+    join(HERMES_VENV, process.platform === "win32" ? "Scripts" : "bin"),
     // Node version manager shim directories
     join(home, ".volta", "bin"),
     join(home, ".asdf", "shims"),
@@ -317,6 +320,7 @@ export async function runClawMigrate(
         TERM: "dumb",
       },
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
 
     proc.stdout?.on("data", (data: Buffer) => {
@@ -374,6 +378,7 @@ export async function runHermesUpdate(
         TERM: "dumb",
       },
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
 
     proc.stdout?.on("data", (data: Buffer) => {
@@ -521,6 +526,7 @@ export async function runInstall(
           ...(askpass?.env ?? {}),
         },
         stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
       });
 
       proc.stdout?.on("data", (data: Buffer) => {

@@ -38,6 +38,11 @@ function getDb(): Database.Database | null {
   return new Database(DB_PATH, { readonly: true });
 }
 
+function getDbWritable(): Database.Database | null {
+  if (!existsSync(DB_PATH)) return null;
+  return new Database(DB_PATH);
+}
+
 export function listSessions(limit = 30, offset = 0): SessionSummary[] {
   const db = getDb();
   if (!db) return [];
@@ -175,6 +180,31 @@ export function getSessionMessages(sessionId: string): SessionMessage[] {
       content: r.content,
       timestamp: r.timestamp,
     }));
+  } finally {
+    db.close();
+  }
+}
+
+export function deleteSession(sessionId: string): boolean {
+  console.log("[deleteSession] Attempting to delete session:", sessionId);
+  const db = getDbWritable();
+  if (!db) {
+    console.log("[deleteSession] Database not found or could not open");
+    return false;
+  }
+
+  try {
+    db.pragma("foreign_keys = ON");
+    const tx = db.transaction(() => {
+      db.prepare("DELETE FROM messages WHERE session_id = ?").run(sessionId);
+      db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+    });
+    tx();
+    console.log("[deleteSession] Session deleted successfully:", sessionId);
+    return true;
+  } catch (e) {
+    console.log("[deleteSession] Error deleting session:", e);
+    return false;
   } finally {
     db.close();
   }

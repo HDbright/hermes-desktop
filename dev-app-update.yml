@@ -1,4 +1,3 @@
-provider: github
-owner: fathah
-repo: hermes-desktop
+provider: generic
+url: https://hdbright.gitee.io/hermes-desktop/
 updaterCacheDirName: hermes-desktop-updater

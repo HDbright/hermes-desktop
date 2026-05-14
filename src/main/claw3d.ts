@@ -6,11 +6,12 @@ import {
   unlinkSync,
   mkdirSync,
 } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
 import { homedir } from "os";
 import { createConnection } from "net";
 import { getEnhancedPath, HERMES_HOME } from "./installer";
 import { stripAnsi, safeWriteFile } from "./utils";
+import { startGateway, getApiUrl } from "./hermes";
 
 const HERMES_OFFICE_REPO = "https://github.com/fathah/hermes-office";
 const HERMES_OFFICE_DIR = join(HERMES_HOME, "hermes-office");
@@ -40,7 +41,6 @@ function getSavedPort(): number {
 
 export function setClaw3dPort(port: number): void {
   safeWriteFile(PORT_FILE, String(port));
-  // Re-write .env with updated port
   writeClaw3dSettings();
 }
 
@@ -59,7 +59,6 @@ function getSavedWsUrl(): string {
 
 export function setClaw3dWsUrl(url: string): void {
   safeWriteFile(WS_URL_FILE, url);
-  // Also update the settings.json so Claw3D picks it up
   writeClaw3dSettings(url);
 }
 
@@ -89,9 +88,12 @@ function writeClaw3dSettings(wsUrl?: string): void {
 
     const settings = {
       ...existing,
-      adapter: "hermes",
-      url,
-      token: "",
+      version: 1,
+      gateway: {
+        url,
+        token: "",
+        adapterType: "hermes",
+      },
     };
     safeWriteFile(settingsPath, JSON.stringify(settings, null, 2));
   } catch {
@@ -103,10 +105,11 @@ function writeClaw3dSettings(wsUrl?: string): void {
     if (existsSync(HERMES_OFFICE_DIR)) {
       const envPath = join(HERMES_OFFICE_DIR, ".env");
       const port = getSavedPort();
+      const hermesApiUrl = getApiUrl();
       const envContent = [
         "# Auto-configured by Hermes Desktop",
         `PORT=${port}`,
-        `HOST=127.0.0.1`,
+        `HERMES_API_URL=${hermesApiUrl}`,
         `NEXT_PUBLIC_GATEWAY_URL=${url}`,
         `CLAW3D_GATEWAY_URL=${url}`,
         `CLAW3D_GATEWAY_TOKEN=`,
@@ -146,11 +149,11 @@ export interface Claw3dStatus {
   installed: boolean;
   devServerRunning: boolean;
   adapterRunning: boolean;
-  running: boolean; // true when both dev + adapter are up
+  running: boolean;
   port: number;
   portInUse: boolean;
   wsUrl: string;
-  error: string; // last error from either process
+  error: string;
 }
 
 export interface Claw3dSetupProgress {
@@ -191,30 +194,35 @@ function cleanupPid(file: string): void {
   }
 }
 
-function isDevServerRunning(): boolean {
+async function isDevServerRunning(): Promise<boolean> {
   if (devServerProcess && !devServerProcess.killed) return true;
   const pid = readPid(DEV_PID_FILE);
   if (pid && isProcessRunning(pid)) return true;
   cleanupPid(DEV_PID_FILE);
-  return false;
+  // Check port in case started externally
+  const port = getSavedPort();
+  return await checkPort(port);
 }
 
-function isAdapterRunning(): boolean {
+async function isAdapterRunning(): Promise<boolean> {
   if (adapterProcess && !adapterProcess.killed) return true;
   const pid = readPid(ADAPTER_PID_FILE);
   if (pid && isProcessRunning(pid)) return true;
   cleanupPid(ADAPTER_PID_FILE);
-  return false;
+  // Check port in case started externally
+  return await checkPort(18789);
 }
 
 export async function getClaw3dStatus(): Promise<Claw3dStatus> {
   const cloned = existsSync(join(HERMES_OFFICE_DIR, "package.json"));
   const installed = existsSync(join(HERMES_OFFICE_DIR, "node_modules"));
   const port = getSavedPort();
-  const devRunning = isDevServerRunning();
-  // Only check port conflict when dev server is NOT running
+  const devRunning = await isDevServerRunning();
   const portInUse = devRunning ? false : await checkPort(port);
-  const adapterUp = isAdapterRunning();
+  const adapterUp = await isAdapterRunning();
+  // Clear stale errors if services are running
+  if (devRunning && devServerError) devServerError = "";
+  if (adapterUp && adapterError) adapterError = "";
   const error = devServerError || adapterError;
   return {
     cloned,
@@ -236,8 +244,6 @@ function findNpm(): string {
 
   const home = homedir();
 
-  // Try common locations first (no process spawn).
-  // Includes nvm, volta, fnm, and system paths.
   const candidates = [
     join(home, ".volta", "bin", "npm"),
     join(home, ".asdf", "shims", "npm"),
@@ -247,7 +253,6 @@ function findNpm(): string {
     "/opt/homebrew/bin/npm",
   ];
 
-  // Discover nvm npm dynamically (active version)
   const nvmDir = process.env.NVM_DIR || join(home, ".nvm");
   const nvmVersions = join(nvmDir, "versions", "node");
   if (existsSync(nvmVersions)) {
@@ -271,7 +276,6 @@ function findNpm(): string {
     }
   }
 
-  // Fallback: which/where (blocks main thread — only runs once)
   try {
     const npmPath = execSync("which npm 2>/dev/null || where npm 2>/dev/null", {
       env: { ...process.env, PATH: getEnhancedPath() },
@@ -316,7 +320,6 @@ export async function setupClaw3d(
     TERM: "dumb",
   };
 
-  // Step 1: Clone (or pull if already cloned)
   const cloned = existsSync(join(HERMES_OFFICE_DIR, "package.json"));
 
   if (!cloned) {
@@ -329,6 +332,7 @@ export async function setupClaw3d(
           cwd: homedir(),
           env,
           stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
         },
       );
 
@@ -362,6 +366,7 @@ export async function setupClaw3d(
         cwd: HERMES_OFFICE_DIR,
         env,
         stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
       });
 
       proc.stdout?.on("data", (data: Buffer) => {
@@ -379,7 +384,6 @@ export async function setupClaw3d(
     });
   }
 
-  // Step 2: npm install
   emit(2, "Installing dependencies...", "Running npm install...\n");
   const npm = findNpm();
 
@@ -388,6 +392,7 @@ export async function setupClaw3d(
       cwd: HERMES_OFFICE_DIR,
       env,
       stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
     });
 
     proc.stdout?.on("data", (data: Buffer) => {
@@ -414,7 +419,6 @@ export async function setupClaw3d(
     );
   });
 
-  // Write config files so Claw3D skips onboarding
   writeClaw3dSettings();
 }
 
@@ -429,7 +433,6 @@ function killProcessTree(proc: ChildProcess): void {
         /* already dead */
       }
     }
-    // Fallback: SIGKILL after 3 seconds
     setTimeout(() => {
       try {
         if (proc.pid) process.kill(-proc.pid, "SIGKILL");
@@ -440,15 +443,21 @@ function killProcessTree(proc: ChildProcess): void {
   }
 }
 
-export function startDevServer(): boolean {
-  if (isDevServerRunning()) return true;
+export async function startDevServer(): Promise<boolean> {
+  if (await isDevServerRunning()) return true;
   if (!existsSync(join(HERMES_OFFICE_DIR, "node_modules"))) return false;
 
   devServerError = "";
   devServerLogs = "";
   const port = getSavedPort();
   const npm = findNpm();
-  const proc = spawn(npm, ["run", "dev"], {
+  const isWindows = process.platform === "win32";
+  const nodeExe = join(dirname(npm), isWindows ? "node.exe" : "node");
+  
+  const proc = spawn(nodeExe, [
+    join(HERMES_OFFICE_DIR, "server", "index.js"), 
+    "--dev"
+  ], {
     cwd: HERMES_OFFICE_DIR,
     env: {
       ...process.env,
@@ -459,6 +468,7 @@ export function startDevServer(): boolean {
     },
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
+    windowsHide: true,
   });
 
   devServerProcess = proc;
@@ -466,7 +476,6 @@ export function startDevServer(): boolean {
 
   proc.stdout?.on("data", (data: Buffer) => {
     devServerLogs += stripAnsi(data.toString());
-    // Keep only last 2000 chars
     if (devServerLogs.length > 2000) devServerLogs = devServerLogs.slice(-2000);
   });
 
@@ -474,7 +483,6 @@ export function startDevServer(): boolean {
     const text = stripAnsi(data.toString());
     devServerLogs += text;
     if (devServerLogs.length > 2000) devServerLogs = devServerLogs.slice(-2000);
-    // Capture real errors (not warnings)
     if (
       /error|EADDRINUSE|ENOENT|failed|fatal/i.test(text) &&
       !/warning/i.test(text)
@@ -516,14 +524,19 @@ export function stopDevServer(): void {
   cleanupPid(DEV_PID_FILE);
 }
 
-export function startAdapter(): boolean {
-  if (isAdapterRunning()) return true;
+export async function startAdapter(): Promise<boolean> {
+  if (await isAdapterRunning()) return true;
   if (!existsSync(join(HERMES_OFFICE_DIR, "node_modules"))) return false;
 
   adapterError = "";
   adapterLogs = "";
   const npm = findNpm();
-  const proc = spawn(npm, ["run", "hermes-adapter"], {
+  const isWindows = process.platform === "win32";
+  const nodeExe = join(dirname(npm), isWindows ? "node.exe" : "node");
+  
+  const proc = spawn(nodeExe, [
+    join(HERMES_OFFICE_DIR, "server", "hermes-gateway-adapter.js")
+  ], {
     cwd: HERMES_OFFICE_DIR,
     env: {
       ...process.env,
@@ -533,6 +546,7 @@ export function startAdapter(): boolean {
     },
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
+    windowsHide: true,
   });
 
   adapterProcess = proc;
@@ -588,7 +602,7 @@ export function stopAdapter(): void {
   cleanupPid(ADAPTER_PID_FILE);
 }
 
-export function startAll(): { success: boolean; error?: string } {
+export async function startAll(): Promise<{ success: boolean; error?: string }> {
   if (!existsSync(join(HERMES_OFFICE_DIR, "node_modules"))) {
     return {
       success: false,
@@ -598,8 +612,18 @@ export function startAll(): { success: boolean; error?: string } {
 
   const port = getSavedPort();
 
+  // First make sure Hermes API Gateway is running
+  if (!(await checkPort(8642))) {
+    startGateway();
+    // Wait a bit for gateway to start
+    for (let i = 0; i < 10; i++) {
+      if (await checkPort(8642)) break;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+
   // Start dev server
-  const devOk = startDevServer();
+  const devOk = await startDevServer();
   if (!devOk) {
     return {
       success: false,
@@ -608,7 +632,7 @@ export function startAll(): { success: boolean; error?: string } {
   }
 
   // Start adapter
-  const adapterOk = startAdapter();
+  const adapterOk = await startAdapter();
   if (!adapterOk) {
     return { success: false, error: "Failed to start Hermes adapter" };
   }

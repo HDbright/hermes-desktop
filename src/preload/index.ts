@@ -396,6 +396,9 @@ const hermesAPI = {
   updateSessionTitle: (sessionId: string, title: string): Promise<void> =>
     ipcRenderer.invoke("update-session-title", sessionId, title),
 
+  deleteSession: (sessionId: string): Promise<boolean> =>
+    ipcRenderer.invoke("delete-session", sessionId),
+
   // Session search
   searchSessions: (
     query: string,

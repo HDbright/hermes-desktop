@@ -2642,11 +2642,12 @@ body {
 
 /* Session card */
 .sessions-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 10px 12px 10px 40px;
   border: 1px solid var(--border);
   background: var(--bg-secondary);
   border-radius: var(--radius-md);
@@ -2666,6 +2667,38 @@ body {
 .sessions-card--active {
   background: var(--accent-subtle);
   border-color: var(--border-focus);
+}
+
+.sessions-card-delete {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--transition),
+    color var(--transition),
+    background var(--transition);
+}
+
+.sessions-card:hover .sessions-card-delete,
+.sessions-card--active .sessions-card-delete {
+  opacity: 1;
+}
+
+.sessions-card-delete:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .sessions-card-main {

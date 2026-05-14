@@ -11,6 +11,8 @@ export default {
   thisWeek: "This Week",
   earlier: "Earlier",
   emptyHint: "Start chatting to create your first session",
-  messages: "msg",
+  messages: "msgs",
   messageSingular: "msg",
+  delete: "Delete",
+  deleteConfirm: "Are you sure you want to delete this session? This cannot be undone.",
 } as const;
