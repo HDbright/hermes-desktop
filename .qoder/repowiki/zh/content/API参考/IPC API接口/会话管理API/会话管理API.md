@@ -15,6 +15,14 @@
 - [sessions-delete-fix-2026-05-14.md](file://docs/sessions-delete-fix-2026-05-14.md)
 </cite>
 
+## 更新摘要
+**变更内容**
+- 新增完整的会话删除功能实现
+- 修复删除后界面不更新的问题
+- 改进背景会话缓存同步机制
+- 增强界面状态过滤逻辑
+- 完善删除确认流程和数据清理策略
+
 ## 目录
 1. [简介](#简介)
 2. [项目结构](#项目结构)
@@ -31,6 +39,8 @@
 本文档详细介绍了 Hermes Desktop 应用程序中的会话管理API，重点分析了会话标题更新机制、删除确认流程和数据清理策略。该系统实现了完整的会话生命周期管理，包括会话的创建、查询、更新和删除功能。
 
 会话管理API采用分层架构设计，通过IPC通信在主进程和渲染进程之间传递数据。系统支持多种删除策略，包括基础删除和完整删除，确保数据的一致性和完整性。
+
+**更新** 新增了完整的会话删除功能，解决了删除后界面不更新的问题，并改进了背景缓存同步机制。
 
 ## 项目结构
 
@@ -97,6 +107,8 @@ IPC通信层负责进程间的数据传输：
 - **预加载桥接**：在渲染进程中暴露安全的API接口
 - **主进程处理器**：处理来自渲染进程的请求
 - **类型安全**：通过TypeScript定义确保API调用的安全性
+
+**更新** 新增了完整的删除功能，包括 `deleteSessionComplete()` 函数和相应的IPC处理。
 
 **章节来源**
 - [sessions.ts:36-212](file://src/main/sessions.ts#L36-L212)
@@ -215,6 +227,8 @@ ShowError --> End
 Cancel --> End
 ```
 
+**更新** 修复了删除后界面不更新的问题，通过改进的返回值逻辑确保前端能够正确识别删除操作。
+
 **图表来源**
 - [Sessions.tsx:186-197](file://src/renderer/src/screens/Sessions/Sessions.tsx#L186-L197)
 
@@ -294,6 +308,8 @@ UI->>UI : 刷新界面显示
 - **实时更新**：删除操作完成后立即更新本地缓存
 - **状态同步**：确保UI界面与实际数据状态一致
 
+**更新** 改进了缓存清理逻辑，确保即使在SSH模式下也能正确处理删除操作。
+
 **章节来源**
 - [session-cache.ts:200-251](file://src/main/session-cache.ts#L200-L251)
 
@@ -321,6 +337,8 @@ AllowDelete --> Proceed[继续执行删除]
 - **浏览器原生确认框**：使用window.confirm确保用户明确同意
 - **不可逆操作提示**：提供明确的不可逆操作警告
 - **即时反馈**：删除操作的即时结果反馈
+
+**更新** 增强了删除确认机制，确保用户操作的可逆性和安全性。
 
 **章节来源**
 - [sessions-delete-feature.md:129-141](file://docs/sessions-delete-feature.md#L129-L141)
@@ -353,9 +371,80 @@ stateDiagram-v2
 - **状态检查**：删除前后检查缓存状态变化
 - **UI同步**：确保界面状态与缓存状态同步
 
+**更新** 改进了缓存一致性检查，通过 `wasInCache` 标志确保即使缓存中存在也会正确返回删除结果。
+
 **章节来源**
 - [sessions.ts:196-210](file://src/main/sessions.ts#L196-L210)
 - [session-cache.ts:191-198](file://src/main/session-cache.ts#L191-L198)
+
+### 背景缓存同步机制
+
+**新增** 系统实现了智能的背景缓存同步机制：
+
+#### 缓存同步算法
+
+```mermaid
+flowchart TD
+Start([启动缓存同步]) --> ReadCache[读取本地缓存]
+ReadCache --> CheckDB{数据库存在?}
+CheckDB --> |否| ReturnCache[返回本地缓存]
+CheckDB --> |是| QueryNew[查询新会话]
+QueryNew --> IndexExisting[建立现有会话索引]
+IndexExisting --> ProcessRows[处理数据库行]
+ProcessRows --> CheckExisting{会话已存在?}
+CheckExisting --> |是| UpdateCount[更新消息计数]
+CheckExisting --> |否| GenerateTitle[生成标题]
+GenerateTitle --> CreateSession[创建新会话]
+CreateSession --> AddToNew[添加到新会话列表]
+UpdateCount --> Continue[继续处理]
+AddToNew --> Continue
+Continue --> Merge[合并会话列表]
+Merge --> Sort[按时间排序]
+Sort --> WriteCache[写入缓存]
+WriteCache --> End([同步完成])
+ReturnCache --> End
+```
+
+**图表来源**
+- [session-cache.ts:83-167](file://src/main/session-cache.ts#L83-L167)
+
+#### 同步优化策略
+
+- **智能增量同步**：只同步自上次同步以来更新的会话
+- **索引优化**：使用Map数据结构实现O(1)查找性能
+- **性能监控**：检测并优化大规模会话的同步性能
+
+**章节来源**
+- [session-cache.ts:83-167](file://src/main/session-cache.ts#L83-L167)
+
+### 界面状态过滤逻辑
+
+**新增** 系统实现了完善的界面状态过滤逻辑：
+
+#### 删除后状态更新
+
+```mermaid
+flowchart TD
+DeleteCalled[调用删除API] --> CheckResult{检查删除结果}
+CheckResult --> |成功| FilterSessions[过滤会话列表]
+CheckResult --> |失败| ShowError[显示错误信息]
+FilterSessions --> FilterSearch[过滤搜索结果]
+FilterSearch --> UpdateUI[更新界面状态]
+UpdateUI --> End[操作完成]
+ShowError --> End
+```
+
+**图表来源**
+- [Sessions.tsx:186-197](file://src/renderer/src/screens/Sessions/Sessions.tsx#L186-L197)
+
+#### 状态同步机制
+
+- **本地状态过滤**：删除成功后立即从本地状态中移除会话
+- **搜索结果同步**：同时更新搜索结果中的会话状态
+- **UI即时反馈**：确保用户界面的实时响应
+
+**章节来源**
+- [Sessions.tsx:186-197](file://src/renderer/src/screens/Sessions/Sessions.tsx#L186-L197)
 
 ## 依赖关系分析
 
@@ -416,6 +505,8 @@ MainIndexTS --> IPC
 - **状态局部化**：只在需要的组件中维护状态
 - **异步加载**：使用异步操作避免阻塞UI线程
 
+**更新** 改进了缓存同步性能，通过索引优化避免了O(N²)的性能问题。
+
 ## 故障排除指南
 
 ### 常见问题及解决方案
@@ -434,6 +525,8 @@ MainIndexTS --> IPC
 2. 验证缓存清理逻辑
 3. 检查IPC通信状态
 
+**更新** 修复了删除后界面不更新的问题，通过改进的返回值逻辑确保前端能够正确识别删除操作。
+
 **章节来源**
 - [sessions-delete-fix-2026-05-14.md:1-71](file://docs/sessions-delete-fix-2026-05-14.md#L1-L71)
 
@@ -445,6 +538,8 @@ MainIndexTS --> IPC
 1. 确保前端正确处理删除结果
 2. 检查本地状态过滤逻辑
 3. 验证缓存同步机制
+
+**更新** 通过改进的 `deleteSessionComplete()` 函数，增加了 `wasInCache` 标志检查，确保即使缓存中存在也会正确返回删除结果。
 
 #### 数据不一致问题
 
@@ -469,5 +564,9 @@ Hermes Desktop的会话管理API实现了完整的会话生命周期管理功能
 - **事务性数据操作**：使用SQLite事务保证数据一致性
 - **高性能缓存机制**：通过本地缓存提升系统响应速度
 - **多层清理策略**：确保删除操作的彻底性和完整性
+- **智能缓存同步**：优化的增量同步算法避免性能问题
+- **完善的界面状态管理**：确保删除操作后的界面即时更新
 
 该API为会话管理提供了可靠、高效且用户友好的解决方案，满足了现代桌面应用程序对会话管理的需求。
+
+**更新** 最新的修复版本解决了删除后界面不更新的关键问题，通过改进的缓存同步机制和界面状态过滤逻辑，确保了用户体验的一致性和可靠性。

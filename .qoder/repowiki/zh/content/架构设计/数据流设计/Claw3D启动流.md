@@ -8,7 +8,16 @@
 - [src/preload/index.ts](file://src/preload/index.ts)
 - [src/main/installer.ts](file://src/main/installer.ts)
 - [tests/claw3d-command-resolution.test.ts](file://tests/claw3d-command-resolution.test.ts)
+- [docs/office-page-fix.md](file://docs/office-page-fix.md)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增WebView加载重试机制章节，包含自动重试算法和错误处理
+- 更新URL路径修正部分，说明Webview URL从`/office`路径简化为根路径
+- 新增useLayoutEffect事件绑定优化章节，解释事件绑定时机的重要性
+- 更新Windows spawn优化部分，详细说明node.exe直接启动的优势
+- 增强故障排除指南，包含新的重试机制调试方法
 
 ## 目录
 1. [简介](#简介)
@@ -27,6 +36,8 @@
 
 系统采用Electron架构，通过主进程负责Claw3D的生命周期管理，渲染进程提供用户界面和交互功能。启动流程涉及多个组件的协调工作：Git仓库克隆、Node.js包管理器检测、进程启动和监控、WebSocket适配器等。
 
+**更新** 本次更新重点关注Office页面稳定性增强，包括WebView加载重试机制、URL路径修正、useLayoutEffect事件绑定优化等改进。
+
 ## 项目结构
 
 Claw3D启动流相关的代码主要分布在以下文件中：
@@ -43,19 +54,23 @@ end
 subgraph "测试模块"
 F[tests/claw3d-command-resolution.test.ts]
 end
+subgraph "文档模块"
+G[docs/office-page-fix.md]
+end
 A --> D
 B --> D
 E --> D
 A --> F
+G --> D
 ```
 
 **图表来源**
-- [src/main/claw3d.ts:1-890](file://src/main/claw3d.ts#L1-L890)
-- [src/main/index.ts:1-1234](file://src/main/index.ts#L1-L1234)
+- [src/main/claw3d.ts:1-892](file://src/main/claw3d.ts#L1-L892)
+- [src/main/index.ts:1-1238](file://src/main/index.ts#L1-L1238)
 
 **章节来源**
-- [src/main/claw3d.ts:1-890](file://src/main/claw3d.ts#L1-L890)
-- [src/main/index.ts:1-1234](file://src/main/index.ts#L1-L1234)
+- [src/main/claw3d.ts:1-892](file://src/main/claw3d.ts#L1-L892)
+- [src/main/index.ts:1-1238](file://src/main/index.ts#L1-L1238)
 
 ## 核心组件
 
@@ -67,6 +82,7 @@ A --> F
 - **环境配置**：自动配置`.openclaw`目录下的设置文件和`.env`环境变量
 - **状态监控**：实时跟踪Claw3D服务的运行状态和端口占用情况
 - **命令解析**：智能解析和执行Windows脚本和可执行文件
+- **Windows优化**：直接使用`node.exe`启动进程，绕过cmd.exe的DLL加载问题
 
 ### 渲染进程Office界面
 
@@ -76,6 +92,8 @@ Office界面提供了用户友好的Claw3D管理体验：
 - **操作控制**：提供安装、启动、停止、重启等操作按钮
 - **配置管理**：允许用户修改端口号和WebSocket URL
 - **日志查看**：集成进程日志查看功能
+- **WebView管理**：实现稳定的WebView加载和错误处理机制
+- **自动重试**：内置智能重试机制，提高加载成功率
 
 ### 预加载API桥接
 
@@ -87,7 +105,7 @@ Office界面提供了用户友好的Claw3D管理体验：
 
 **章节来源**
 - [src/main/claw3d.ts:250-341](file://src/main/claw3d.ts#L250-L341)
-- [src/renderer/src/screens/Office/Office.tsx:1-489](file://src/renderer/src/screens/Office/Office.tsx#L1-L489)
+- [src/renderer/src/screens/Office/Office.tsx:1-561](file://src/renderer/src/screens/Office/Office.tsx#L1-L561)
 - [src/preload/index.ts:470-531](file://src/preload/index.ts#L470-L531)
 
 ## 架构概览
@@ -330,6 +348,113 @@ stateDiagram-v2
 - [src/renderer/src/screens/Office/Office.tsx:53-93](file://src/renderer/src/screens/Office/Office.tsx#L53-L93)
 - [src/main/claw3d.ts:319-341](file://src/main/claw3d.ts#L319-L341)
 
+### WebView加载重试机制
+
+**新增** Office页面引入了智能的WebView加载重试机制，显著提高了3D环境的稳定性：
+
+```mermaid
+flowchart TD
+WebviewLoad[WebView加载尝试] --> LoadSuccess{"加载成功？"}
+LoadSuccess --> |是| Success["加载完成"]
+LoadSuccess --> |否| CheckErrorCode{检查错误码}
+CheckErrorCode --> |-3| AbortIgnore["忽略中止错误<br/>(发生重载时)"]
+CheckErrorCode --> |其他错误| CheckRetryCount{检查重试次数}
+AbortIgnore --> WebviewLoad
+CheckRetryCount --> |<10次| RetryAttempt["增加重试计数<br/>计算延迟时间"]
+CheckRetryCount --> |>=10次| ShowError["显示错误信息"]
+RetryAttempt --> CalculateDelay["计算延迟时间<br/>min(1000+count*500, 5000)"]
+CalculateDelay --> ClearSrc["清空src"]
+ClearSrc --> DelayReload["延迟重载<br/>300ms后重新设置src"]
+DelayReload --> WebviewLoad
+ShowError --> End([结束])
+Success --> End
+```
+
+**图表来源**
+- [src/renderer/src/screens/Office/Office.tsx:123-141](file://src/renderer/src/screens/Office/Office.tsx#L123-L141)
+
+#### 重试算法详解
+
+重试机制采用指数退避算法，最大延迟时间为5秒：
+
+- **重试上限**：最多10次重试
+- **延迟计算**：`delay = min(1000 + retryCount × 500, 5000)`
+- **错误过滤**：忽略特定的中止错误（错误码-3）
+- **状态管理**：重置WebView状态并在重载前清空src
+
+**章节来源**
+- [src/renderer/src/screens/Office/Office.tsx:123-141](file://src/renderer/src/screens/Office/Office.tsx#L123-L141)
+
+### URL路径修正优化
+
+**更新** Webview URL从`http://localhost:${port}/office`简化为`http://localhost:${port}`：
+
+- **简化路径**：移除了`/office`子路径，直接访问根路径
+- **兼容性**：确保与Claw3D前端路由的兼容性
+- **性能优化**：减少了不必要的路径解析开销
+
+**章节来源**
+- [src/renderer/src/screens/Office/Office.tsx:249](file://src/renderer/src/screens/Office/Office.tsx#L249)
+
+### useLayoutEffect事件绑定优化
+
+**新增** 使用`useLayoutEffect`确保事件在首次渲染前绑定：
+
+```mermaid
+sequenceDiagram
+participant Component as React组件
+participant LayoutEffect as useLayoutEffect
+participant EventBinding as 事件绑定
+participant WebView as WebView元素
+Component->>LayoutEffect : 注册事件监听器
+LayoutEffect->>EventBinding : 绑定did-finish-load事件
+LayoutEffect->>EventBinding : 绑定did-fail-load事件
+EventBinding->>WebView : 添加事件监听器
+Note over WebView : 首次渲染前完成绑定
+WebView-->>EventBinding : 触发加载完成事件
+WebView-->>EventBinding : 触发加载失败事件
+EventBinding-->>Component : 更新组件状态
+```
+
+**图表来源**
+- [src/renderer/src/screens/Office/Office.tsx:106-148](file://src/renderer/src/screens/Office/Office.tsx#L106-L148)
+
+#### 事件绑定时机的重要性
+
+- **时机保证**：`useLayoutEffect`在DOM布局后、浏览器绘制前执行
+- **避免竞态**：确保事件监听器在WebView首次加载前就绪
+- **状态同步**：防止加载事件丢失导致的状态不同步
+
+**章节来源**
+- [src/renderer/src/screens/Office/Office.tsx:106-148](file://src/renderer/src/screens/Office/Office.tsx#L106-L148)
+
+### Windows spawn优化
+
+**更新** Windows平台直接使用`node.exe`启动进程，绕过cmd.exe的DLL加载问题：
+
+```mermaid
+flowchart TD
+Start([进程启动]) --> CheckPlatform{检查平台}
+CheckPlatform --> |Windows| FindNodeExe["查找node.exe路径"]
+CheckPlatform --> |其他平台| UseDirectNode["直接使用node"]
+FindNodeExe --> SpawnNodeExe["spawn node.exe 直接启动"]
+UseDirectNode --> SpawnNodeExe
+SpawnNodeExe --> AvoidCmd["避免cmd.exe DLL问题"]
+AvoidCmd --> Success["启动成功"]
+```
+
+**图表来源**
+- [src/main/claw3d.ts:689-699](file://src/main/claw3d.ts#L689-L699)
+
+#### Windows DLL加载问题解决
+
+- **问题背景**：通过`cmd.exe /d /s /c npm run dev`启动时，SWC编译器可能无法正确初始化DLL
+- **解决方案**：直接spawn `node.exe`调用入口脚本
+- **错误码**：`STATUS_DLL_INIT_FAILED` (0xC0000142 = 3221225794)
+
+**章节来源**
+- [src/main/claw3d.ts:689-699](file://src/main/claw3d.ts#L689-L699)
+
 ## 依赖关系分析
 
 Claw3D启动流涉及多个模块间的复杂依赖关系：
@@ -415,6 +540,7 @@ Claw3D启动流在多个方面进行了性能优化：
 - **缓存策略**：对命令解析结果进行缓存，减少重复查找
 - **增量日志**：限制日志缓冲区大小，避免内存泄漏
 - **端口检查**：快速端口可用性检查，减少启动延迟
+- **Windows优化**：直接使用node.exe绕过cmd.exe开销
 
 ### 资源管理
 
@@ -429,6 +555,15 @@ Claw3D启动流在多个方面进行了性能优化：
 - **并发进程**：开发服务器和适配器可以并行启动
 - **超时控制**：为关键操作设置合理的超时时间
 - **重试机制**：对临时性错误提供自动重试
+
+### WebView性能优化
+
+**新增** Office页面的WebView加载优化：
+
+- **延迟加载**：启动后500ms再加载WebView，避免连接拒绝
+- **防抖机制**：停止服务后5秒才清除src，防止状态波动闪烁
+- **智能重试**：指数退避算法，最大5秒延迟
+- **错误过滤**：忽略特定的中止错误，避免误判
 
 ## 故障排除指南
 
@@ -485,6 +620,34 @@ Claw3D启动流在多个方面进行了性能优化：
 - 检查文件权限
 - 使用增强PATH
 
+#### 5. WebView加载失败
+
+**新增** Office页面WebView加载问题：
+
+**症状**：Claw3D页面无法加载或频繁重试
+**原因**：
+- 开发服务器尚未完全启动
+- 网络连接不稳定
+- 事件绑定时机问题
+
+**解决方案**：
+- 等待服务器完全启动后再加载
+- 检查网络连接和防火墙设置
+- 确认事件绑定已完成
+- 查看重试日志和错误信息
+
+#### 6. Windows DLL初始化失败
+
+**新增** Windows平台特有的DLL加载问题：
+
+**症状**：开发服务器启动时报DLL初始化错误
+**原因**：通过cmd.exe启动时SWC编译器无法正确初始化
+
+**解决方案**：
+- 直接使用node.exe启动进程
+- 检查Node.js版本兼容性
+- 验证系统DLL完整性
+
 ### 调试技巧
 
 #### 日志分析
@@ -494,6 +657,7 @@ Claw3D启动流在多个方面进行了性能优化：
 1. **进程日志**：分别记录开发服务器和适配器的日志
 2. **错误追踪**：捕获并存储最近的错误信息
 3. **状态监控**：实时监控服务状态变化
+4. **重试日志**：记录WebView加载重试的详细信息
 
 #### 状态检查
 
@@ -502,6 +666,7 @@ Claw3D启动流在多个方面进行了性能优化：
 - **检查状态**：显示当前Claw3D的完整状态
 - **端口占用**：提示端口冲突警告
 - **错误信息**：显示具体的错误详情
+- **重试状态**：显示当前重试次数和延迟
 
 **章节来源**
 - [src/main/claw3d.ts:882-890](file://src/main/claw3d.ts#L882-L890)
@@ -517,6 +682,8 @@ Hermes Desktop的Claw3D启动流展现了现代桌面应用的优秀实践：
 2. **跨平台兼容**：完善的Windows和Unix-like系统支持
 3. **健壮性保证**：全面的错误处理和恢复机制
 4. **用户体验**：直观的界面和实时状态反馈
+5. **稳定性增强**：智能的WebView加载重试机制
+6. **性能优化**：Windows平台的spawn优化
 
 ### 架构优势
 
@@ -524,6 +691,7 @@ Hermes Desktop的Claw3D启动流展现了现代桌面应用的优秀实践：
 - **事件驱动**：基于IPC的消息传递机制
 - **异步处理**：非阻塞的用户体验
 - **状态管理**：完整的生命周期跟踪
+- **容错设计**：多重错误处理和恢复机制
 
 ### 改进建议
 
@@ -531,5 +699,8 @@ Hermes Desktop的Claw3D启动流展现了现代桌面应用的优秀实践：
 2. **自动化测试**：扩展测试覆盖率，特别是边界条件
 3. **配置热重载**：支持运行时配置的动态更新
 4. **容器化支持**：考虑Docker等容器化部署选项
+5. **重试策略优化**：根据具体错误类型调整重试策略
+
+**更新** 本次更新重点增强了Office页面的稳定性，通过智能重试机制、URL路径优化和事件绑定时机保证，显著提升了用户体验和系统可靠性。这些改进为开发者提供了更加稳定可靠的3D办公环境基础。
 
 该启动流为开发者提供了可靠的3D办公环境基础，通过模块化的架构设计和完善的错误处理机制，确保了系统的稳定性和可维护性。

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, memo } from "react";
-import { Plus, Search, X, ChatBubble } from "../../assets/icons";
+import { Plus, Search, X, ChatBubble, Trash } from "../../assets/icons";
 import { useI18n } from "../../components/useI18n";
 
 interface CachedSession {
@@ -110,11 +110,13 @@ const SessionCard = memo(function SessionCard({
   isActive,
   showFullDate,
   onClick,
+  onDelete,
 }: {
   session: CachedSession;
   isActive: boolean;
   showFullDate: boolean;
   onClick: () => void;
+  onDelete: (id: string) => void;
 }) {
   return (
     <button
@@ -144,6 +146,16 @@ const SessionCard = memo(function SessionCard({
           </span>
         )}
       </div>
+      <button
+        className="sessions-card-delete"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete(session.id);
+        }}
+        title="Delete session"
+      >
+        <Trash size={14} />
+      </button>
     </button>
   );
 });
@@ -162,6 +174,19 @@ function Sessions({
   const [isSearching, setIsSearching] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  const handleDelete = useCallback(
+    async (sessionId: string) => {
+      const confirmed = window.confirm(t("sessions.deleteConfirm"));
+      if (!confirmed) return;
+      const ok = await window.hermesAPI.deleteSession(sessionId);
+      if (ok) {
+        setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+        setSearchResults((prev) => prev.filter((r) => r.sessionId !== sessionId));
+      }
+    },
+    [t],
+  );
 
   const loadSessions = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -296,6 +321,16 @@ function Sessions({
                     </span>
                   )}
                 </div>
+                <button
+                  className="sessions-card-delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDelete(r.sessionId);
+                  }}
+                  title="Delete session"
+                >
+                  <Trash size={14} />
+                </button>
               </button>
             ))}
           </div>
@@ -320,6 +355,7 @@ function Sessions({
                     group.label === "thisWeek" || group.label === "earlier"
                   }
                   onClick={() => onResumeSession(s.id)}
+                  onDelete={handleDelete}
                 />
               ))}
             </div>

@@ -9,7 +9,28 @@ files:
   - "!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}"
   - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
   - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}"
+  - "!**/*.d.ts"
+  - "!**/*.d.mts"
+  - "!**/*.map"
+  - "!**/test/**"
+  - "!**/tests/**"
+  - "!**/__tests__/**"
+  - "!**/*.test.*"
+  - "!**/*.spec.*"
+  - "!**/CHANGELOG*"
+  - "!**/LICENSE*"
+  - "!node_modules/electron/**"
+  - "!gitee_release/**"
+  - "!installer_output/**"
+  - "!asar-extracted/**"
+  - "!.qoder/**"
+  - "!.agents/**"
+  - "!.claude/**"
+  - "!docs/**"
+  - "!-w"
+  - "!debug.log"
 asarUnpack:
+  - "**/*.node"
   - resources/**
 win:
   executableName: hermes-agent

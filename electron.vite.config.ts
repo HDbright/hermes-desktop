@@ -6,6 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   main: {
     build: {
+      sourcemap: false,
       rollupOptions: {
         external: ["better-sqlite3"],
       },
@@ -22,6 +23,9 @@ export default defineConfig({
     },
   },
   renderer: {
+    build: {
+      sourcemap: false,
+    },
     resolve: {
       alias: {
         "@renderer": resolve("src/renderer/src"),
