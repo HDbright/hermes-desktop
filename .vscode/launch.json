@@ -1,0 +1,51 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "调试主进程 (Main)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron-vite",
+      "windows": {
+        "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron-vite.cmd"
+      },
+      "runtimeArgs": ["dev", "--sourcemap", "--inspect", "--remoteDebuggingPort", "9222"],
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "调试渲染进程 (Renderer)",
+      "type": "chrome",
+      "request": "attach",
+      "port": 9222,
+      "webRoot": "${workspaceFolder}/src/renderer",
+      "timeout": 30000,
+      "sourceMapPathOverrides": {
+        "/@fs/*": "${workspaceFolder}/*",
+        "webpack:///./src/*": "${webRoot}/*",
+        "webpack:///src/*": "${webRoot}/*",
+        "webpack:///*": "*"
+      },
+      "presentation": {
+        "hidden": true
+      }
+    },
+    {
+      "name": "调试预加载脚本 (Preload)",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "cwd": "${workspaceFolder}",
+      "sourceMaps": true,
+      "presentation": {
+        "hidden": true
+      }
+    },
+  ],
+  "compounds": [
+    {
+      "name": "调试整个应用 (All Processes)",
+      "configurations": ["调试主进程 (Main)", "调试渲染进程 (Renderer)"]
+    }
+  ]
+}

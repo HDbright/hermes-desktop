@@ -25,6 +25,7 @@ interface SessionsProps {
   onResumeSession: (sessionId: string) => void;
   onNewChat: () => void;
   currentSessionId: string | null;
+  visible?: boolean;
 }
 
 function formatTime(ts: number): string {
@@ -118,10 +119,18 @@ const SessionCard = memo(function SessionCard({
   onDelete: (id: string) => void;
 }) {
   return (
-    <button
-      className={`sessions-card ${isActive ? "sessions-card--active" : ""}`}
-      onClick={onClick}
-    >
+    <div
+        className={`sessions-card ${isActive ? "sessions-card--active" : ""}`}
+        onClick={onClick}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onClick();
+          }
+        }}
+      >
       <div className="sessions-card-main">
         <span className="sessions-card-title">
           {session.title || "New conversation"}
@@ -155,7 +164,7 @@ const SessionCard = memo(function SessionCard({
       >
         <Trash size={14} />
       </button>
-    </button>
+    </div>
   );
 });
 
@@ -163,6 +172,7 @@ function Sessions({
   onResumeSession,
   onNewChat,
   currentSessionId,
+  visible,
 }: SessionsProps): React.JSX.Element {
   const { t } = useI18n();
   const [sessions, setSessions] = useState<CachedSession[]>([]);
@@ -201,6 +211,13 @@ function Sessions({
   useEffect(() => {
     loadSessions();
   }, [loadSessions]);
+
+  // Refresh sessions list when this view becomes visible
+  useEffect(() => {
+    if (visible) {
+      loadSessions();
+    }
+  }, [visible, loadSessions]);
 
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
@@ -277,10 +294,18 @@ function Sessions({
         ) : (
           <div className="sessions-list">
             {searchResults.map((r) => (
-              <button
+              <div
                 key={r.sessionId}
                 className={`sessions-card ${currentSessionId === r.sessionId ? "sessions-card--active" : ""}`}
                 onClick={() => onResumeSession(r.sessionId)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onResumeSession(r.sessionId);
+                  }
+                }}
               >
                 <div className="sessions-card-main">
                   <span className="sessions-card-title">
@@ -319,7 +344,7 @@ function Sessions({
                 >
                   <Trash size={14} />
                 </button>
-              </button>
+              </div>
             ))}
           </div>
         )

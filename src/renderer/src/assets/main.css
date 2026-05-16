@@ -2718,6 +2718,7 @@ body {
   color: var(--text-muted);
   cursor: pointer;
   opacity: 0;
+  pointer-events: none;
   transition:
     opacity var(--transition),
     color var(--transition),
@@ -2727,6 +2728,7 @@ body {
 .sessions-card:hover .sessions-card-delete,
 .sessions-card--active .sessions-card-delete {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .sessions-card-delete:hover {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { Refresh, ExternalLink, Settings } from "../../assets/icons";
 import { useI18n } from "../../components/useI18n";
 
@@ -39,6 +39,10 @@ function Office({ visible }: { visible?: boolean }): React.JSX.Element {
   });
   const [webviewReady, setWebviewReady] = useState(false);
   const [webviewError, setWebviewError] = useState("");
+  const [webviewSrc, setWebviewSrc] = useState("");
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef(0);
+  const runningOffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<HTMLWebViewElement>(null);
 
@@ -99,8 +103,8 @@ function Office({ visible }: { visible?: boolean }): React.JSX.Element {
     }
   }, [progress.log, logs]);
 
-  // Webview load/error handling
-  useEffect(() => {
+  // Webview load/error handling (useLayoutEffect ensures events bind before first load)
+  useLayoutEffect(() => {
     const wv = webviewRef.current as unknown as {
       addEventListener: (e: string, fn: (evt?: unknown) => void) => void;
       removeEventListener: (e: string, fn: (evt?: unknown) => void) => void;
@@ -120,6 +124,16 @@ function Office({ visible }: { visible?: boolean }): React.JSX.Element {
       setWebviewReady(false);
       const e = evt as { errorDescription?: string; errorCode?: number };
       if (e?.errorCode === -3) return; // Aborted — ignore (happens on reload)
+      // Auto-retry on connection errors (server may still be starting)
+      if (retryCountRef.current < 10) {
+        retryCountRef.current++;
+        const delay = Math.min(1000 + retryCountRef.current * 500, 5000);
+        retryTimerRef.current = setTimeout(() => {
+          setWebviewSrc("");
+          setTimeout(() => setWebviewSrc(claw3dUrl), 300);
+        }, delay);
+        return;
+      }
       setWebviewError(
         e?.errorDescription ||
           "Failed to load Claw3D. The dev server may still be starting up.",
@@ -131,7 +145,7 @@ function Office({ visible }: { visible?: boolean }): React.JSX.Element {
       wv.removeEventListener("did-finish-load", onLoad);
       wv.removeEventListener("did-fail-load", onFail);
     };
-  }, [running, port]);
+  }, [running, port, webviewSrc]);
 
   async function handleInstall(): Promise<void> {
     setState("installing");
@@ -160,14 +174,33 @@ function Office({ visible }: { visible?: boolean }): React.JSX.Element {
   async function handleStartStop(): Promise<void> {
     if (running) {
       await window.hermesAPI.claw3dStopAll();
+      if (runningOffTimerRef.current) {
+        clearTimeout(runningOffTimerRef.current);
+        runningOffTimerRef.current = null;
+      }
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       setRunning(false);
       setWebviewReady(false);
       setWebviewError("");
+      setWebviewSrc("");
       setError("");
     } else {
       setError("");
       setWebviewError("");
       setStarting(true);
+      // Reset retry state for a fresh start
+      retryCountRef.current = 0;
+      if (runningOffTimerRef.current) {
+        clearTimeout(runningOffTimerRef.current);
+        runningOffTimerRef.current = null;
+      }
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       const result = await window.hermesAPI.claw3dStartAll();
       if (!result.success) {
         setError(result.error || "Failed to start Claw3D");
@@ -213,7 +246,37 @@ function Office({ visible }: { visible?: boolean }): React.JSX.Element {
       ? Math.round((progress.step / progress.totalSteps) * 100)
       : 0;
 
-  const claw3dUrl = `http://localhost:${port}`;
+  const claw3dUrl = `http://localhost:${port}/office`;
+
+  // Delay webview src until server is likely ready, to avoid ERR_CONNECTION_REFUSED.
+  // When running turns false, debounce 5s before clearing — prevents flicker from
+  // momentary status-check fluctuations.
+  useEffect(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    if (runningOffTimerRef.current) {
+      clearTimeout(runningOffTimerRef.current);
+      runningOffTimerRef.current = null;
+    }
+    if (running && !webviewReady && !webviewError) {
+      retryTimerRef.current = setTimeout(() => {
+        setWebviewSrc(claw3dUrl);
+      }, 500);
+    } else if (!running) {
+      runningOffTimerRef.current = setTimeout(() => {
+        setWebviewSrc("");
+        setWebviewReady(false);
+        setWebviewError("");
+        retryCountRef.current = 0;
+      }, 5000);
+    }
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      if (runningOffTimerRef.current) clearTimeout(runningOffTimerRef.current);
+    };
+  }, [running, port, webviewReady, webviewError]);
 
   // --- Checking ---
   if (state === "checking") {
@@ -465,11 +528,20 @@ function Office({ visible }: { visible?: boolean }): React.JSX.Element {
                 )}
               </div>
             )}
-            <webview
-              ref={webviewRef as React.RefObject<HTMLWebViewElement>}
-              src={claw3dUrl}
-              style={{ width: "100%", height: "100%", border: "none" }}
-            />
+            {webviewSrc ? (
+              <webview
+                ref={webviewRef as React.RefObject<HTMLWebViewElement>}
+                src={webviewSrc}
+                style={{ width: "100%", height: "100%", border: "none" }}
+              />
+            ) : (
+              <div className="office-center">
+                <div className="office-spinner" />
+                <p className="office-muted">
+                  {t("office.startingClaw3dService")}
+                </p>
+              </div>
+            )}
           </>
         ) : !showLogs ? (
           <div className="office-center">

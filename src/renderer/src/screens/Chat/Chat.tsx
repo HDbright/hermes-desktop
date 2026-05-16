@@ -263,7 +263,11 @@ function Chat({
     });
 
     const cleanupDone = window.hermesAPI.onChatDone((sessionId) => {
-      if (sessionId) setHermesSessionId(sessionId);
+      if (sessionId) {
+        setHermesSessionId(sessionId);
+        // Sync session cache in background so new sessions appear in Sessions list
+        window.hermesAPI.syncSessionCache().catch(() => {});
+      }
       setToolProgress(null);
       setIsLoading(false);
     });

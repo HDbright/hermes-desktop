@@ -233,9 +233,9 @@ function createWindow(): void {
 
   mainWindow.webContents.on(
     "console-message",
-    (_event, level, message, line, sourceId) => {
-      if (level >= 2) {
-        console.error(`[RENDERER ERROR] ${message} (${sourceId}:${line})`);
+    (event) => {
+      if (event.level === "error") {
+        console.error(`[RENDERER ERROR] ${event.message} (${event.sourceId}:${event.lineNumber})`);
       }
     },
   );
@@ -1171,6 +1171,10 @@ function setupUpdater(): void {
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch(() => {});
   }, 5000);
+}
+
+if (is.dev) {
+  app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
 }
 
 app.whenReady().then(() => {

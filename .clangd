@@ -1,0 +1,17 @@
+CompileFlags:
+  CompilationDatabase: out
+  Add:
+    - -IC:/Users/Administrator/.electron-gyp/42.0.1/include/node
+    - -DUSING_ELECTRON
+    - -ferror-limit=0
+
+Diagnostics:
+  Suppress:
+    - 'unused-includes'
+    - '*'
+---
+If:
+  PathMatch: '.*/node_modules/.*'
+Diagnostics:
+  Suppress:
+    - '*'

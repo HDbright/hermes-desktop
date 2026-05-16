@@ -671,13 +671,14 @@ export async function startDevServer(): Promise<boolean> {
   devServerError = "";
   devServerLogs = "";
   const port = getSavedPort();
-  const env = {
+  const env: Record<string, string | undefined> = {
     ...process.env,
     PATH: getEnhancedPath(),
     HOME: homedir(),
     TERM: "dumb",
     PORT: String(port),
   };
+  delete env.NODE_TLS_REJECT_UNAUTHORIZED;
 
   const pnpmCmd = findPnpm(env.PATH);
   let nodeCmd = findNodeFromPnpm(pnpmCmd);
@@ -756,12 +757,13 @@ export async function startAdapter(): Promise<boolean> {
 
   adapterError = "";
   adapterLogs = "";
-  const env = {
+  const env: Record<string, string | undefined> = {
     ...process.env,
     PATH: getEnhancedPath(),
     HOME: homedir(),
     TERM: "dumb",
   };
+  delete env.NODE_TLS_REJECT_UNAUTHORIZED;
 
   const pnpmCmd = findPnpm(env.PATH);
   let nodeCmd = findNodeFromPnpm(pnpmCmd);
