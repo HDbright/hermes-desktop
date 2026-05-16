@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, memo } from "react";
-import { Plus, Search, X, ChatBubble, Trash } from "../../assets/icons";
+import { Plus, Search, X, ChatBubble } from "../../assets/icons";
 import { useI18n } from "../../components/useI18n";
 
 interface CachedSession {
@@ -25,7 +25,7 @@ interface SessionsProps {
   onResumeSession: (sessionId: string) => void;
   onNewChat: () => void;
   currentSessionId: string | null;
-  visible?: boolean;
+  visible: boolean;
 }
 
 function formatTime(ts: number): string {
@@ -110,27 +110,17 @@ const SessionCard = memo(function SessionCard({
   isActive,
   showFullDate,
   onClick,
-  onDelete,
 }: {
   session: CachedSession;
   isActive: boolean;
   showFullDate: boolean;
   onClick: () => void;
-  onDelete: (id: string) => void;
 }) {
   return (
-    <div
-        className={`sessions-card ${isActive ? "sessions-card--active" : ""}`}
-        onClick={onClick}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onClick();
-          }
-        }}
-      >
+    <button
+      className={`sessions-card ${isActive ? "sessions-card--active" : ""}`}
+      onClick={onClick}
+    >
       <div className="sessions-card-main">
         <span className="sessions-card-title">
           {session.title || "New conversation"}
@@ -154,17 +144,7 @@ const SessionCard = memo(function SessionCard({
           </span>
         )}
       </div>
-      <button
-        className="sessions-card-delete"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete(session.id);
-        }}
-        title="Delete session"
-      >
-        <Trash size={14} />
-      </button>
-    </div>
+    </button>
   );
 });
 
@@ -183,19 +163,6 @@ function Sessions({
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const handleDelete = useCallback(
-    async (sessionId: string) => {
-      const confirmed = window.confirm(t("sessions.deleteConfirm"));
-      if (!confirmed) return;
-      const ok = await window.hermesAPI.deleteSession(sessionId);
-      if (ok) {
-        setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-        setSearchResults((prev) => prev.filter((r) => r.sessionId !== sessionId));
-      }
-    },
-    [t],
-  );
-
   const loadSessions = useCallback(async (): Promise<void> => {
     setLoading(true);
     const cached = await window.hermesAPI.listCachedSessions(50);
@@ -212,7 +179,10 @@ function Sessions({
     loadSessions();
   }, [loadSessions]);
 
-  // Refresh sessions list when this view becomes visible
+  // Refresh sessions whenever the Sessions view becomes visible.
+  // This ensures new sessions created in the Chat view (via "+")
+  // appear immediately when the user navigates back to Sessions,
+  // and also fixes stale sessions list after clearing search.
   useEffect(() => {
     if (visible) {
       loadSessions();
@@ -294,18 +264,10 @@ function Sessions({
         ) : (
           <div className="sessions-list">
             {searchResults.map((r) => (
-              <div
+              <button
                 key={r.sessionId}
                 className={`sessions-card ${currentSessionId === r.sessionId ? "sessions-card--active" : ""}`}
                 onClick={() => onResumeSession(r.sessionId)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onResumeSession(r.sessionId);
-                  }
-                }}
               >
                 <div className="sessions-card-main">
                   <span className="sessions-card-title">
@@ -334,17 +296,7 @@ function Sessions({
                     </span>
                   )}
                 </div>
-                <button
-                  className="sessions-card-delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(r.sessionId);
-                  }}
-                  title="Delete session"
-                >
-                  <Trash size={14} />
-                </button>
-              </div>
+              </button>
             ))}
           </div>
         )
@@ -368,7 +320,6 @@ function Sessions({
                     group.label === "thisWeek" || group.label === "earlier"
                   }
                   onClick={() => onResumeSession(s.id)}
-                  onDelete={handleDelete}
                 />
               ))}
             </div>

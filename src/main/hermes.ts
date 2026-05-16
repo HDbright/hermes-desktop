@@ -4,7 +4,6 @@ import { join } from "path";
 import { homedir } from "os";
 import http from "http";
 import https from "https";
-import { createConnection } from "net";
 import {
   HERMES_HOME,
   HERMES_REPO,
@@ -16,6 +15,7 @@ import { getModelConfig, readEnv, getConnectionConfig } from "./config";
 import { getSshTunnelUrl, isSshTunnelActive, isSshTunnelHealthy, startSshTunnel } from "./ssh-tunnel";
 import { stripAnsi } from "./utils";
 import { readModels } from "./models";
+import { HIDDEN_SUBPROCESS_OPTIONS } from "./process-options";
 
 const LOCAL_API_URL = "http://127.0.0.1:8642";
 
@@ -191,6 +191,7 @@ function sendMessageViaApi(
     model: mc.model || "hermes-agent",
     messages,
     stream: true,
+    ...(_resumeSessionId ? { session_id: _resumeSessionId } : {}),
   });
 
   const headers: Record<string, string> = {
@@ -562,7 +563,7 @@ function sendMessageViaCli(
     cwd: HERMES_REPO,
     env,
     stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true,
+    ...HIDDEN_SUBPROCESS_OPTIONS,
   });
 
   let hasOutput = false;
@@ -662,7 +663,7 @@ export async function sendMessage(
 
   // Remote mode: always use API, no CLI fallback
   if (isRemoteMode()) {
-    return sendMessageViaApi(message, cb, profile, resumeSessionId);
+    return sendMessageViaApi(message, cb, profile, resumeSessionId, history);
   }
 
   // Check API server availability (cache the result, re-check periodically)
@@ -717,9 +718,9 @@ export function stopHealthPolling(): void {
 let gatewayProcess: ChildProcess | null = null;
 let gatewayStartedByApp = false;
 
-export async function startGateway(profile?: string): Promise<boolean> {
+export function startGateway(profile?: string): boolean {
   ensureInitialized();
-  if (await isGatewayRunning()) return false;
+  if (isGatewayRunning()) return false;
 
   // Build gateway env with profile API keys
   const gatewayEnv: Record<string, string> = {
@@ -743,7 +744,7 @@ export async function startGateway(profile?: string): Promise<boolean> {
     env: gatewayEnv,
     stdio: "ignore",
     detached: true,
-    windowsHide: true,
+    ...HIDDEN_SUBPROCESS_OPTIONS,
   });
 
   gatewayProcess.unref();
@@ -764,25 +765,6 @@ export async function startGateway(profile?: string): Promise<boolean> {
   }, 3000);
 
   return true;
-}
-
-function checkPort(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = createConnection({ port, host: "127.0.0.1" });
-    socket.setTimeout(300); // 300ms is plenty for localhost
-    socket.on("connect", () => {
-      socket.destroy();
-      resolve(true); // port is in use
-    });
-    socket.on("error", () => {
-      socket.destroy();
-      resolve(false); // port is free
-    });
-    socket.on("timeout", () => {
-      socket.destroy();
-      resolve(false);
-    });
-  });
 }
 
 function readPidFile(): number | null {
@@ -830,21 +812,16 @@ export function stopGateway(force = false): void {
   apiServerAvailable = false;
 }
 
-export async function isGatewayRunning(): Promise<boolean> {
+export function isGatewayRunning(): boolean {
   if (gatewayProcess && !gatewayProcess.killed) return true;
   const pid = readPidFile();
-  let pidValid = false;
-  if (pid) {
-    try {
-      process.kill(pid, 0);
-      pidValid = true;
-    } catch {
-      pidValid = false;
-    }
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
-  // 如果PID无效，但端口8642是否被占用？
-  const portInUse = await checkPort(8642);
-  return pidValid || portInUse;
 }
 
 export function isApiReady(): boolean {
@@ -877,8 +854,8 @@ export function testRemoteConnection(
   });
 }
 
-export async function restartGateway(profile?: string): Promise<void> {
-  if (!gatewayStartedByApp && !(await isGatewayRunning())) return;
+export function restartGateway(profile?: string): void {
+  if (!gatewayStartedByApp && !isGatewayRunning()) return;
   stopGateway(true);
   setTimeout(() => {
     startGateway(profile);

@@ -12,6 +12,7 @@ import Office from "../Office/Office";
 import Models from "../Models/Models";
 import Providers from "../Providers/Providers";
 import Schedules from "../Schedules/Schedules";
+import Kanban from "../Kanban/Kanban";
 import RemoteNotice from "../../components/RemoteNotice";
 import VerifyWarningBanner from "../../components/VerifyWarningBanner";
 import hermeslogo from "../../assets/hermes.png";
@@ -29,6 +30,7 @@ import {
   Layers,
   KeyRound,
   Timer,
+  Kanban as KanbanIcon,
   Download,
 } from "../../assets/icons";
 import type { LucideIcon } from "lucide-react";
@@ -46,6 +48,7 @@ type View =
   | "memory"
   | "tools"
   | "schedules"
+  | "kanban"
   | "gateway"
   | "settings";
 
@@ -54,6 +57,7 @@ const NAV_ITEMS: { view: View; icon: LucideIcon; labelKey: string }[] = [
   { view: "sessions", icon: Clock, labelKey: "navigation.sessions" },
   { view: "agents", icon: Users, labelKey: "navigation.agents" },
   { view: "office", icon: Building, labelKey: "navigation.office" },
+  { view: "kanban", icon: KanbanIcon, labelKey: "navigation.kanban" },
   { view: "models", icon: Layers, labelKey: "navigation.models" },
   { view: "providers", icon: KeyRound, labelKey: "navigation.providers" },
   { view: "skills", icon: Puzzle, labelKey: "navigation.skills" },
@@ -109,14 +113,17 @@ function Layout({
   // Auto-update state
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   const [updateState, setUpdateState] = useState<
-    "available" | "downloading" | "ready" | null
+    "available" | "downloading" | "ready" | "error" | null
   >(null);
   const [downloadPercent, setDownloadPercent] = useState(0);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   useEffect(() => {
     const cleanupAvailable = window.hermesAPI.onUpdateAvailable((info) => {
       setUpdateVersion(info.version);
       setUpdateState("available");
+      setUpdateError(null);
+      setDownloadPercent(0);
     });
     const cleanupProgress = window.hermesAPI.onUpdateDownloadProgress(
       (info) => {
@@ -125,18 +132,33 @@ function Layout({
     );
     const cleanupDownloaded = window.hermesAPI.onUpdateDownloaded(() => {
       setUpdateState("ready");
+      setUpdateError(null);
+    });
+    const cleanupError = window.hermesAPI.onUpdateError((message) => {
+      setUpdateState("error");
+      setUpdateError(message);
+      setDownloadPercent(0);
     });
     return () => {
       cleanupAvailable();
       cleanupProgress();
       cleanupDownloaded();
+      cleanupError();
     };
   }, []);
 
   async function handleUpdate(): Promise<void> {
-    if (updateState === "available") {
+    if (updateState === "available" || updateState === "error") {
+      setUpdateError(null);
+      setDownloadPercent(0);
       setUpdateState("downloading");
-      await window.hermesAPI.downloadUpdate();
+      try {
+        const ok = await window.hermesAPI.downloadUpdate();
+        if (!ok) setUpdateState("error");
+      } catch (err) {
+        setUpdateError(err instanceof Error ? err.message : String(err));
+        setUpdateState("error");
+      }
     } else if (updateState === "ready") {
       await window.hermesAPI.installUpdate();
     }
@@ -207,7 +229,14 @@ function Layout({
 
         <div className="sidebar-footer">
           {updateState && (
-            <button className="sidebar-update-btn" onClick={handleUpdate}>
+            <button
+              className={`sidebar-update-btn ${
+                updateState === "error" ? "error" : ""
+              }`}
+              onClick={handleUpdate}
+              disabled={updateState === "downloading"}
+              title={updateError ?? undefined}
+            >
               <Download size={13} />
               {updateState === "available" && (
                 <span>
@@ -221,6 +250,9 @@ function Layout({
               )}
               {updateState === "ready" && (
                 <span>{t("common.restartToUpdate")}</span>
+              )}
+              {updateState === "error" && (
+                <span>{t("common.updateFailed")}</span>
               )}
             </button>
           )}
@@ -347,6 +379,19 @@ function Layout({
         {visitedViews.has("schedules") && (
           <div style={paneStyle("schedules")}>
             <Schedules profile={activeProfile} />
+          </div>
+        )}
+
+        {visitedViews.has("kanban") && (
+          <div style={paneStyle("kanban")}>
+            {remoteMode ? (
+              <RemoteNotice feature="Kanban" />
+            ) : (
+              <Kanban
+                profile={activeProfile}
+                visible={view === "kanban"}
+              />
+            )}
           </div>
         )}
 
